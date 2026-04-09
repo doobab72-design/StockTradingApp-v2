@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">주식 자동매매</string>
+    <string name="channel_recommendation_name">추천 종목</string>
+    <string name="channel_trading_signal_name">매매 신호</string>
+    <string name="channel_order_status_name">주문 상태</string>
+</resources>

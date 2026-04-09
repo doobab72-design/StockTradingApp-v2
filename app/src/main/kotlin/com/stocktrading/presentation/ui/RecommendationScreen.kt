@@ -5,7 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,8 +41,20 @@ fun RecommendationScreen(
                     }
                 },
                 actions = {
-                    if (uiState.isRefreshing) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(4.dp), strokeWidth = 2.dp)
+                    if (uiState.isRecommendationRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .padding(4.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        IconButton(onClick = { viewModel.refreshRecommendations() }) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "추천 종목 새로고침"
+                            )
+                        }
                     }
                 }
             )
@@ -62,10 +74,31 @@ fun RecommendationScreen(
                         style = MaterialTheme.typography.bodyLarge
                     )
                     Text(
-                        text = "매일 오전 8시에 자동으로 분석하여 업데이트합니다.",
+                        text = "매일 오전 8시 자동 분석 또는 우측 상단 버튼으로 직접 새로고침",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { viewModel.refreshRecommendations() },
+                        enabled = !uiState.isRecommendationRefreshing
+                    ) {
+                        if (uiState.isRecommendationRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("지금 분석하기")
+                    }
                 }
             }
         } else {

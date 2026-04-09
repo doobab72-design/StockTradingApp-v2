@@ -3,12 +3,14 @@ package com.stocktrading.presentation.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.stocktrading.analysis.TradingSignalGenerator
 import com.stocktrading.data.model.Portfolio
 import com.stocktrading.data.model.RecommendedStock
 import com.stocktrading.data.model.TradingRecord
 import com.stocktrading.data.repository.StockRepository
 import com.stocktrading.data.repository.TradingRepository
 import com.stocktrading.security.SecureCredentialManager
+import com.stocktrading.work.DailyRecommendationWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.flow.*
@@ -23,7 +25,8 @@ import javax.inject.Inject
 class DashboardViewModel @Inject constructor(
     private val stockRepository: StockRepository,
     private val tradingRepository: TradingRepository,
-    private val credentialManager: SecureCredentialManager
+    private val credentialManager: SecureCredentialManager,
+    private val signalGenerator: TradingSignalGenerator
 ) : ViewModel() {
 
     companion object {
@@ -43,6 +46,7 @@ class DashboardViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 isRefreshing = false,
+                isRecommendationRefreshing = false,
                 isLoading = false,
                 errorMessage = "오류 발생: ${throwable.message}"
             )
@@ -161,7 +165,56 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * 추천 종목 업데이트
+     * 추천 종목 수동 새로고침
+     * DailyRecommendationWorker와 동일한 분석 로직을 ViewModel에서 직접 실행하여
+     * 결과를 즉시 UI 상태에 반영 (WorkManager 완료 대기 없음)
+     */
+    fun refreshRecommendations() {
+        if (_uiState.value.isRecommendationRefreshing) return
+
+        viewModelScope.launch(exceptionHandler) {
+            _uiState.update { it.copy(isRecommendationRefreshing = true, errorMessage = null) }
+            Log.i(TAG, "추천 종목 수동 새로고침 시작")
+
+            try {
+                val recommendations = buildList {
+                    for ((code, _) in DailyRecommendationWorker.CANDIDATE_STOCKS) {
+                        try {
+                            val priceResult = stockRepository.getPriceData(code, 60)
+                            if (priceResult.isFailure) continue
+
+                            val priceData = priceResult.getOrThrow()
+                            if (priceData.size < 30) continue
+
+                            val recommendation = signalGenerator.generateRecommendation(priceData)
+                            if (recommendation != null) add(recommendation)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "[$code] 분석 건너뜀: ${e.message}")
+                        }
+                    }
+                }.sortedByDescending { it.score }.take(3)
+
+                Log.i(TAG, "추천 종목 새로고침 완료: ${recommendations.size}개")
+                _uiState.update {
+                    it.copy(
+                        isRecommendationRefreshing = false,
+                        recommendations = recommendations
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "추천 종목 새로고침 오류", e)
+                _uiState.update {
+                    it.copy(
+                        isRecommendationRefreshing = false,
+                        errorMessage = "추천 종목 분석 오류: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 추천 종목 업데이트 (Worker 결과 수신용)
      */
     fun updateRecommendations(recommendations: List<RecommendedStock>) {
         _uiState.update { it.copy(recommendations = recommendations) }
@@ -181,6 +234,7 @@ class DashboardViewModel @Inject constructor(
 data class DashboardUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
+    val isRecommendationRefreshing: Boolean = false,
     val isApiConfigured: Boolean = false,
     val isMockMode: Boolean = true,
     val recommendations: List<RecommendedStock> = emptyList(),

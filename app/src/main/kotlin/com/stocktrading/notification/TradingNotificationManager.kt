@@ -98,9 +98,9 @@ class TradingNotificationManager @Inject constructor(
     fun sendRecommendationNotification(recommendations: List<RecommendedStock>) {
         if (recommendations.isEmpty()) return
 
-        val mainIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("navigate_to", "recommendations")
+        val mainIntent = Intent(context, MainActivity::class.java).also { intent ->
+            intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            intent.putExtra("navigate_to", "recommendations")
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -154,10 +154,10 @@ class TradingNotificationManager @Inject constructor(
             else -> return  // HOLD는 알림 불필요
         }
 
-        val mainIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("navigate_to", "portfolio")
-            putExtra("stock_code", signal.stockCode)
+        val mainIntent = Intent(context, MainActivity::class.java).also { intent ->
+            intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            intent.putExtra("navigate_to", "portfolio")
+            intent.putExtra("stock_code", signal.stockCode)
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -217,9 +217,9 @@ class TradingNotificationManager @Inject constructor(
      * API 키 미설정 알림
      */
     fun sendSetupRequiredNotification() {
-        val mainIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("navigate_to", "settings")
+        val mainIntent = Intent(context, MainActivity::class.java).also { intent ->
+            intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+            intent.putExtra("navigate_to", "settings")
         }
         val pendingIntent = PendingIntent.getActivity(
             context, 0, mainIntent,

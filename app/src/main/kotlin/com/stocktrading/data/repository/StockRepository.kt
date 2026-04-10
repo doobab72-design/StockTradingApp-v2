@@ -72,7 +72,7 @@ class StockRepository @Inject constructor(
             )
 
             if (response.isSuccessful && response.body()?.rt_cd == "0") {
-                val outputs = response.body()!!.output2
+                val outputs = response.body()?.output2.orEmpty()
                 val priceDataList = outputs.mapNotNull { output ->
                     try {
                         PriceData(

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stocktrading.analysis.TradingSignalGenerator
+import com.stocktrading.data.api.KISTokenManager
 import com.stocktrading.data.model.Portfolio
 import com.stocktrading.data.model.RecommendedStock
 import com.stocktrading.data.model.TradingRecord
@@ -26,7 +27,8 @@ class DashboardViewModel @Inject constructor(
     private val stockRepository: StockRepository,
     private val tradingRepository: TradingRepository,
     private val credentialManager: SecureCredentialManager,
-    private val signalGenerator: TradingSignalGenerator
+    private val signalGenerator: TradingSignalGenerator,
+    private val tokenManager: KISTokenManager
 ) : ViewModel() {
 
     companion object {
@@ -166,39 +168,86 @@ class DashboardViewModel @Inject constructor(
 
     /**
      * 추천 종목 수동 새로고침
-     * DailyRecommendationWorker와 동일한 분석 로직을 ViewModel에서 직접 실행하여
-     * 결과를 즉시 UI 상태에 반영 (WorkManager 완료 대기 없음)
+     * 1) 토큰 사전 검증 (403 → API 키 오류 즉시 안내, 네트워크 오류 구분)
+     * 2) 토큰 실패 시 15개 루프 진입 없이 즉시 종료
      */
     fun refreshRecommendations() {
         if (_uiState.value.isRecommendationRefreshing) return
 
         viewModelScope.launch(exceptionHandler) {
+            // API 키 미설정 시 즉시 안내
+            if (!credentialManager.isApiKeyConfigured()) {
+                _uiState.update {
+                    it.copy(errorMessage = "API 키를 먼저 설정해주세요. 설정 화면에서 KIS 앱키/시크릿을 입력하세요.")
+                }
+                return@launch
+            }
+
             _uiState.update { it.copy(isRecommendationRefreshing = true, errorMessage = null) }
             Log.i(TAG, "추천 종목 수동 새로고침 시작")
 
+            // ── 토큰 사전 검증 ──────────────────────────────────────────
+            val appKey = credentialManager.getAppKey() ?: ""
+            val appSecret = credentialManager.getAppSecret() ?: ""
             try {
+                tokenManager.getValidToken(appKey, appSecret)
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                val errorMsg = when {
+                    msg.contains("403") ->
+                        "KIS API 키가 유효하지 않거나 승인되지 않았습니다.\n" +
+                        "KIS 개발자센터(apiportal.koreainvestment.com)에서 앱키 상태를 확인해주세요."
+                    msg.contains("401") ->
+                        "KIS API 인증에 실패했습니다. 앱키/시크릿을 다시 확인해주세요."
+                    else ->
+                        "토큰 발급 실패: 네트워크 연결 또는 API 키 상태를 확인해주세요. ($msg)"
+                }
+                Log.e(TAG, "토큰 사전 검증 실패: $msg")
+                _uiState.update { it.copy(isRecommendationRefreshing = false, errorMessage = errorMsg) }
+                return@launch
+            }
+            // ────────────────────────────────────────────────────────────
+
+            try {
+                var successCount = 0
+                var failCount = 0
+
                 val recommendations = buildList {
                     for ((code, _) in DailyRecommendationWorker.CANDIDATE_STOCKS) {
                         try {
                             val priceResult = stockRepository.getPriceData(code, 60)
-                            if (priceResult.isFailure) continue
-
+                            if (priceResult.isFailure) {
+                                failCount++
+                                continue
+                            }
                             val priceData = priceResult.getOrThrow()
-                            if (priceData.size < 30) continue
-
+                            if (priceData.size < 30) {
+                                failCount++
+                                continue
+                            }
+                            successCount++
                             val recommendation = signalGenerator.generateRecommendation(priceData)
                             if (recommendation != null) add(recommendation)
                         } catch (e: Exception) {
+                            failCount++
                             Log.w(TAG, "[$code] 분석 건너뜀: ${e.message}")
                         }
                     }
                 }.sortedByDescending { it.score }.take(3)
 
-                Log.i(TAG, "추천 종목 새로고침 완료: ${recommendations.size}개")
+                Log.i(TAG, "추천 종목 새로고침 완료: ${recommendations.size}개 (성공: $successCount, 실패: $failCount)")
+
+                val errorMsg = when {
+                    successCount == 0 -> "종목 데이터를 불러올 수 없습니다. 네트워크 상태를 확인해주세요."
+                    recommendations.isEmpty() -> "현재 매수 조건을 충족하는 종목이 없습니다. (${successCount}개 분석 완료)"
+                    else -> null
+                }
+
                 _uiState.update {
                     it.copy(
                         isRecommendationRefreshing = false,
-                        recommendations = recommendations
+                        recommendations = recommendations,
+                        errorMessage = errorMsg
                     )
                 }
             } catch (e: Exception) {
@@ -206,7 +255,7 @@ class DashboardViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isRecommendationRefreshing = false,
-                        errorMessage = "추천 종목 분석 오류: ${e.message}"
+                        errorMessage = "분석 오류: ${e.message}"
                     )
                 }
             }

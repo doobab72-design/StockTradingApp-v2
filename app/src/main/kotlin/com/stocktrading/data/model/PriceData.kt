@@ -63,10 +63,10 @@ data class CurrentPrice(
  * KIS API 일별 주가 응답 DTO
  */
 data class DailyPriceResponse(
-    val rt_cd: String,        // 응답 코드 (0: 성공)
-    val msg_cd: String,       // 메시지 코드
-    val msg1: String,         // 메시지
-    val output2: List<DailyPriceOutput>
+    val rt_cd: String?,       // 응답 코드 (0: 성공)
+    val msg_cd: String?,      // 메시지 코드
+    val msg1: String?,        // 메시지
+    val output2: List<DailyPriceOutput>?  // null 가능 (API 오류 시)
 )
 
 data class DailyPriceOutput(

@@ -41,8 +41,17 @@ class KISAuthInterceptor @Inject constructor(
         }
 
         // 현재 유효한 토큰 가져오기 (없으면 새로 발급)
-        val accessToken = runBlocking {
-            tokenManager.getValidToken(appKey, appSecret)
+        // runBlocking 내부 예외가 OkHttp 스레드를 크래시시키지 않도록 try-catch 필수
+        val accessToken = try {
+            runBlocking { tokenManager.getValidToken(appKey, appSecret) }
+        } catch (e: Exception) {
+            Log.e(TAG, "토큰 획득 실패 (${e.message}) — 인증 헤더 없이 요청 진행")
+            null
+        }
+
+        // 토큰 획득 실패 시 원본 요청 그대로 진행 (API에서 401/403 반환 → StockRepository에서 처리)
+        if (accessToken == null) {
+            return chain.proceed(originalRequest)
         }
 
         val authenticatedRequest = originalRequest.newBuilder()
@@ -59,8 +68,15 @@ class KISAuthInterceptor @Inject constructor(
             response.close()
             Log.i(TAG, "토큰 만료 감지 - 토큰 갱신 시도")
 
-            val newToken = runBlocking {
-                tokenManager.refreshToken(appKey, appSecret)
+            val newToken = try {
+                runBlocking { tokenManager.refreshToken(appKey, appSecret) }
+            } catch (e: Exception) {
+                Log.e(TAG, "토큰 갱신 실패 (${e.message})")
+                null
+            }
+
+            if (newToken == null) {
+                return chain.proceed(originalRequest)
             }
 
             val retryRequest = originalRequest.newBuilder()

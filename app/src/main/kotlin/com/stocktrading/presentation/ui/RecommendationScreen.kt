@@ -60,9 +60,10 @@ fun RecommendationScreen(
             )
         }
     ) { paddingValues ->
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
         if (uiState.recommendations.isEmpty()) {
             Box(
-                modifier = Modifier.fillMaxSize().padding(paddingValues),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -103,7 +104,7 @@ fun RecommendationScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(paddingValues),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -126,6 +127,23 @@ fun RecommendationScreen(
                 }
             }
         }
+
+        // 에러 메시지 Snackbar — 콘텐츠 위에 오버레이
+        uiState.errorMessage?.let { msg ->
+            Snackbar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
+                action = {
+                    TextButton(onClick = { viewModel.clearError() }) {
+                        Text("닫기")
+                    }
+                }
+            ) {
+                Text(msg, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        } // Box 닫기
     }
 }
 

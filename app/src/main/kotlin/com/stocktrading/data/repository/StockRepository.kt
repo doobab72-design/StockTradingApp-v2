@@ -6,6 +6,8 @@ import com.stocktrading.data.database.PortfolioDao
 import com.stocktrading.data.database.PriceDataDao
 import com.stocktrading.data.model.*
 import kotlinx.coroutines.flow.Flow
+import java.text.SimpleDateFormat
+import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,6 +26,18 @@ class StockRepository @Inject constructor(
         private const val TAG = "StockRepository"
         /** 주가 데이터 보관 기간 (60 거래일 = 약 3개월) */
         private const val PRICE_DATA_RETENTION_DAYS = 60
+
+        private val DATE_FORMAT = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+
+        /** 오늘부터 calendarDays 전의 날짜를 YYYYMMDD 형식으로 반환 */
+        fun dateBeforeDays(calendarDays: Int): String {
+            val cal = Calendar.getInstance()
+            cal.add(Calendar.DAY_OF_YEAR, -calendarDays)
+            return DATE_FORMAT.format(cal.time)
+        }
+
+        /** 오늘 날짜를 YYYYMMDD 형식으로 반환 */
+        fun today(): String = DATE_FORMAT.format(Date())
     }
 
     // ============================
@@ -53,62 +67,99 @@ class StockRepository @Inject constructor(
 
     /**
      * KIS API에서 주가 데이터를 가져와 DB에 저장
+     * FHKST01010400 API는 1회 최대 30 거래일치 반환 → 2회 요청으로 ~60 거래일치 확보
+     * (MACD 26/12/9 계산에 최소 35 거래일 필요)
      */
     suspend fun fetchAndSavePriceData(stockCode: String, days: Int = 60): Result<List<PriceData>> {
         return try {
             val service = kisApiClient.getService()
-            val isMockMode = false // SecureCredentialManager에서 가져와야 하지만 여기선 간소화
+            val allPriceData = mutableListOf<PriceData>()
 
-            // 모의/실전 모두 동일한 tr_id 사용 (시세 조회는 공통)
-            val response = service.getDailyPrice(
-                authorization = "",  // KISAuthInterceptor가 자동 주입
-                appkey = "",         // KISAuthInterceptor가 자동 주입
-                appsecret = "",      // KISAuthInterceptor가 자동 주입
+            // 1차 요청: 최근 90 캘린더일 (약 30 거래일)
+            val firstEndDate = today()
+            val firstStartDate = dateBeforeDays(90)
+            Log.d(TAG, "[$stockCode] 1차 조회: $firstStartDate ~ $firstEndDate")
+
+            val firstResponse = service.getDailyPrice(
+                authorization = "", appkey = "", appsecret = "",
                 trId = "FHKST01010400",
                 marketDivCode = "J",
                 stockCode = stockCode,
+                startDate = firstStartDate,
+                endDate = firstEndDate,
                 periodDivCode = "D",
                 adjustPrice = "0"
             )
 
-            if (response.isSuccessful && response.body()?.rt_cd == "0") {
-                val outputs = response.body()?.output2.orEmpty()
-                val priceDataList = outputs.mapNotNull { output ->
-                    try {
-                        PriceData(
-                            stockCode = stockCode,
-                            stockName = stockCode, // 종목명은 별도 조회 필요
-                            date = output.stck_bsop_date,
-                            openPrice = output.stck_oprc.toDoubleOrNull() ?: 0.0,
-                            highPrice = output.stck_hgpr.toDoubleOrNull() ?: 0.0,
-                            lowPrice = output.stck_lwpr.toDoubleOrNull() ?: 0.0,
-                            closePrice = output.stck_clpr.toDoubleOrNull() ?: 0.0,
-                            volume = output.acml_vol.toLongOrNull() ?: 0L,
-                            priceChange = output.prdy_vrss.toDoubleOrNull() ?: 0.0,
-                            changeRate = output.prdy_ctrt.toDoubleOrNull() ?: 0.0
-                        )
-                    } catch (e: NumberFormatException) {
-                        Log.w(TAG, "[$stockCode] 주가 데이터 파싱 오류: $output")
-                        null
-                    }
-                }
-
-                if (priceDataList.isNotEmpty()) {
-                    priceDataDao.insertAll(priceDataList)
-                    Log.i(TAG, "[$stockCode] ${priceDataList.size}개 주가 데이터 저장 완료")
-                }
-
-                Result.success(priceDataList.take(days))
+            if (firstResponse.isSuccessful && firstResponse.body()?.rt_cd == "0") {
+                allPriceData += parseOutputs(stockCode, firstResponse.body()?.output2.orEmpty())
             } else {
-                val errorMsg = "API 오류: ${response.code()} - ${response.body()?.msg1}"
+                val errorMsg = "API 오류: ${firstResponse.code()} - ${firstResponse.body()?.msg1}"
                 Log.e(TAG, "[$stockCode] $errorMsg")
-                Result.failure(IllegalStateException(errorMsg))
+                return Result.failure(IllegalStateException(errorMsg))
             }
+
+            // 2차 요청: 90~180 캘린더일 전 (약 30 거래일 추가 확보)
+            val secondEndDate = dateBeforeDays(91)   // 1차 시작일 바로 전날
+            val secondStartDate = dateBeforeDays(180)
+            Log.d(TAG, "[$stockCode] 2차 조회: $secondStartDate ~ $secondEndDate")
+
+            try {
+                val secondResponse = service.getDailyPrice(
+                    authorization = "", appkey = "", appsecret = "",
+                    trId = "FHKST01010400",
+                    marketDivCode = "J",
+                    stockCode = stockCode,
+                    startDate = secondStartDate,
+                    endDate = secondEndDate,
+                    periodDivCode = "D",
+                    adjustPrice = "0"
+                )
+                if (secondResponse.isSuccessful && secondResponse.body()?.rt_cd == "0") {
+                    allPriceData += parseOutputs(stockCode, secondResponse.body()?.output2.orEmpty())
+                }
+            } catch (e: Exception) {
+                // 2차 요청 실패는 무시 — 1차 데이터로 분석 진행
+                Log.w(TAG, "[$stockCode] 2차 조회 실패 (무시): ${e.message}")
+            }
+
+            // 날짜 기준 내림차순 정렬 (최신 → 과거), 중복 제거
+            val sorted = allPriceData
+                .distinctBy { it.date }
+                .sortedByDescending { it.date }
+
+            if (sorted.isNotEmpty()) {
+                priceDataDao.insertAll(sorted)
+                Log.i(TAG, "[$stockCode] ${sorted.size}개 주가 데이터 저장 완료")
+            }
+
+            Result.success(sorted.take(days))
         } catch (e: Exception) {
             Log.e(TAG, "[$stockCode] API 통신 오류", e)
             Result.failure(e)
         }
     }
+
+    private fun parseOutputs(stockCode: String, outputs: List<DailyPriceOutput>): List<PriceData> =
+        outputs.mapNotNull { output ->
+            try {
+                PriceData(
+                    stockCode = stockCode,
+                    stockName = stockCode,
+                    date = output.stck_bsop_date,
+                    openPrice  = output.stck_oprc.toDoubleOrNull() ?: 0.0,
+                    highPrice  = output.stck_hgpr.toDoubleOrNull() ?: 0.0,
+                    lowPrice   = output.stck_lwpr.toDoubleOrNull() ?: 0.0,
+                    closePrice = output.stck_clpr.toDoubleOrNull() ?: 0.0,
+                    volume     = output.acml_vol.toLongOrNull()    ?: 0L,
+                    priceChange = output.prdy_vrss.toDoubleOrNull() ?: 0.0,
+                    changeRate  = output.prdy_ctrt.toDoubleOrNull() ?: 0.0
+                )
+            } catch (e: NumberFormatException) {
+                Log.w("StockRepository", "[$stockCode] 파싱 오류: $output")
+                null
+            }
+        }
 
     /**
      * 현재가 조회

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stocktrading.analysis.TradingSignalGenerator
+import com.stocktrading.data.api.KISApiClient
 import com.stocktrading.data.api.KISTokenManager
 import com.stocktrading.data.model.Portfolio
 import com.stocktrading.data.model.RecommendedStock
@@ -28,7 +29,8 @@ class DashboardViewModel @Inject constructor(
     private val tradingRepository: TradingRepository,
     private val credentialManager: SecureCredentialManager,
     private val signalGenerator: TradingSignalGenerator,
-    private val tokenManager: KISTokenManager
+    private val tokenManager: KISTokenManager,
+    private val kisApiClient: KISApiClient
 ) : ViewModel() {
 
     companion object {
@@ -190,6 +192,8 @@ class DashboardViewModel @Inject constructor(
             val appKey = credentialManager.getAppKey() ?: ""
             val appSecret = credentialManager.getAppSecret() ?: ""
             try {
+                // KISApiClient.getService()를 먼저 호출해 KISApiServiceProvider 초기화
+                kisApiClient.getService()
                 tokenManager.getValidToken(appKey, appSecret)
             } catch (e: Exception) {
                 val msg = e.message ?: ""

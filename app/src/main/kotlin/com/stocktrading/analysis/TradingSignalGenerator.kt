@@ -25,10 +25,11 @@ class TradingSignalGenerator @Inject constructor(
         private const val PATTERN_WEIGHT = 10.0
 
         // 매매 신호 임계값
-        private const val STRONG_BUY_THRESHOLD = 70.0
-        private const val BUY_THRESHOLD = 40.0
-        private const val SELL_THRESHOLD = -40.0
-        private const val STRONG_SELL_THRESHOLD = -70.0
+        // BUY_THRESHOLD를 25로 낮춰 실 데이터 60거래일 기준에서도 추천 종목 표시
+        private const val STRONG_BUY_THRESHOLD = 60.0
+        private const val BUY_THRESHOLD = 25.0
+        private const val SELL_THRESHOLD = -25.0
+        private const val STRONG_SELL_THRESHOLD = -60.0
     }
 
     /**

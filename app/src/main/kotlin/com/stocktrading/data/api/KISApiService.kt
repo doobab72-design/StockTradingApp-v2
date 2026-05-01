@@ -47,9 +47,12 @@ interface KISApiService {
      * @param authorization Bearer {access_token}
      * @param appkey 앱 키
      * @param appsecret 앱 시크릿
-     * @param trId 거래 ID (실전: FHKST01010400, 모의: FHKST01010400)
+     * @param trId 거래 ID (FHKST01010400 — 실전/모의 공통)
+     * @param marketDivCode 시장 구분 코드 (J: 주식/ETF/ETN)
      * @param stockCode 종목 코드
-     * @param periodDivCode 기간 구분 코드 (D:일, W:주, M:월)
+     * @param startDate 조회 시작일 YYYYMMDD (필수)
+     * @param endDate 조회 종료일 YYYYMMDD (필수)
+     * @param periodDivCode 기간 구분 코드 (D:일, W:주, M:월, Y:년)
      * @param adjustPrice 수정주가 여부 (0:미반영, 1:반영)
      */
     @GET("uapi/domestic-stock/v1/quotations/inquire-daily-price")
@@ -60,6 +63,8 @@ interface KISApiService {
         @Header("tr_id") trId: String,
         @Query("FID_COND_MRKT_DIV_CODE") marketDivCode: String,
         @Query("FID_INPUT_ISCD") stockCode: String,
+        @Query("FID_INPUT_DATE_1") startDate: String,
+        @Query("FID_INPUT_DATE_2") endDate: String,
         @Query("FID_PERIOD_DIV_CODE") periodDivCode: String,
         @Query("FID_ORG_ADJ_PRC") adjustPrice: String
     ): Response<DailyPriceResponse>

@@ -2,6 +2,7 @@ package com.stocktrading.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.google.gson.annotations.SerializedName
 
 /**
  * 일별 주가 데이터 모델
@@ -61,12 +62,14 @@ data class CurrentPrice(
 
 /**
  * KIS API 일별 주가 응답 DTO
+ * FHKST01010400: output 키로 배열 반환 (output2 아님)
  */
 data class DailyPriceResponse(
     val rt_cd: String?,       // 응답 코드 (0: 성공)
     val msg_cd: String?,      // 메시지 코드
     val msg1: String?,        // 메시지
-    val output2: List<DailyPriceOutput>?  // null 가능 (API 오류 시)
+    @SerializedName("output")
+    val output2: List<DailyPriceOutput>?  // API 응답 키는 "output" (FHKST01010400 기준)
 )
 
 data class DailyPriceOutput(
